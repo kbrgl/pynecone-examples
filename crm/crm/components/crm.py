@@ -1,5 +1,6 @@
 from crm.state import State
 from crm.state.models import Contact, STAGES
+from typing import Optional
 import pynecone as pc
 
 
@@ -7,6 +8,7 @@ class CRMState(State):
     contacts: list[Contact] = []
     query = ""
     stage = STAGES[0]
+    detail: Optional[Contact] = None
 
     def get_contacts(self) -> list[Contact]:
         if not self.user:
@@ -41,10 +43,17 @@ class CRMState(State):
             contact.stage = STAGES[next_stage_idx]
             sess.commit()
         return self.get_contacts()
+    
+    def select_detail(self, contact):
+        self.detail = contact
 
     @pc.var
     def num_contacts(self):
         return len(self.contacts)
+    
+    @pc.var
+    def detail_selected(self) -> bool:
+        return self.detail != None
 
 
 class AddModalState(CRMState):
@@ -100,6 +109,7 @@ def contact_row(
     contact,
 ):
     return pc.tr(
+        pc.td(pc.box(pc.icon(tag="ViewIcon")), on_click=lambda: CRMState.select_detail(contact), cursor="pointer"),
         pc.td(contact.contact_name),
         pc.td(contact.email),
         pc.td(pc.badge(contact.stage)),
@@ -129,6 +139,28 @@ def crm():
             pc.table(pc.tbody(pc.foreach(CRMState.contacts, contact_row))),
             margin_top="1rem",
             border="1px solid #eaeaef",
+        ),
+        pc.drawer(
+            pc.drawer_overlay(
+                pc.drawer_content(
+                    pc.cond(CRMState.detail_selected,
+                        pc.fragment(
+                            pc.drawer_header(CRMState.detail.contact_name),
+                            pc.drawer_body(
+                                pc.box(CRMState.detail.email),
+                                pc.box(pc.badge(CRMState.detail.stage))
+                            ),
+                        ),
+                        pc.box()
+                    ),
+                    pc.drawer_footer(
+                        pc.button(
+                            "Close", on_click=lambda: CRMState.set_detail(None)
+                        )
+                    ),
+                )
+            ),
+            is_open=CRMState.detail_selected,
         ),
         width="100%",
         max_width="960px",
