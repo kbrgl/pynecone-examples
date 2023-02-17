@@ -1,11 +1,12 @@
 from crm.state import State
-from crm.state.models import Contact
+from crm.state.models import Contact, STAGES
 import pynecone as pc
 
 
 class CRMState(State):
     contacts: list[Contact] = []
     query = ""
+    stage = STAGES[0]
 
     def get_contacts(self) -> list[Contact]:
         if not self.user:
@@ -15,16 +16,30 @@ class CRMState(State):
                 self.contacts = (
                     sess.query(Contact)
                     .filter(Contact.user_email == self.user.email)
+                    .filter(Contact.stage == self.stage)
                     .filter(Contact.contact_name.contains(self.query))
                     .all()
                 )
                 return
             self.contacts = (
-                sess.query(Contact).filter(Contact.user_email == self.user.email).all()
+                sess.query(Contact).filter(Contact.user_email == self.user.email).filter(Contact.stage == self.stage).all()
             )
 
     def filter(self, query):
         self.query = query
+        return self.get_contacts()
+
+    def set_stage(self, stage):
+        self.stage = stage
+        return self.get_contacts()
+    
+    def convert(self, contact):
+        with pc.session() as sess:
+            contact = sess.query(Contact).filter(Contact.id == contact["id"]).first()
+            curr_stage_idx = STAGES.index(contact.stage)
+            next_stage_idx = (curr_stage_idx + 1) % len(STAGES)
+            contact.stage = STAGES[next_stage_idx]
+            sess.commit()
         return self.get_contacts()
 
     @pc.var
@@ -51,7 +66,7 @@ class AddModalState(CRMState):
                 )
             )
             sess.commit()
-            self.toggle()
+            self.show = not self.show
             return self.get_contacts()
 
 
@@ -88,35 +103,32 @@ def contact_row(
         pc.td(contact.contact_name),
         pc.td(contact.email),
         pc.td(pc.badge(contact.stage)),
+        pc.td(pc.button("Convert", on_click=lambda: CRMState.convert(contact))),
     )
 
 
 def crm():
     return pc.box(
         pc.hstack(
-            pc.heading("Contacts"),
-            pc.button("Add", on_click=AddModalState.toggle),
+            pc.heading("Dashboard"),
+            pc.hstack(
+                pc.box(align_self="stretch", border_left="1px solid #eee", margin_right="1rem"),
+                pc.box(CRMState.num_contacts, " contacts", padding_x="1rem", font_weight="500"),
+                pc.button("Add", on_click=AddModalState.toggle),
+            ),
             justify_content="space-between",
             align_items="flex-start",
             margin_bottom="1rem",
         ),
-        pc.responsive_grid(
-            pc.box(
-                pc.stat(
-                    pc.stat_label("Contacts"), pc.stat_number(CRMState.num_contacts)
-                ),
-                border="1px solid #eaeaef",
-                padding="1rem",
-                border_radius=8,
-            ),
-            columns=["5"],
-            margin_bottom="1rem",
-        ),
         add_modal(),
-        pc.input(placeholder="Filter by name...", on_change=CRMState.filter),
+        pc.hstack(
+            pc.input(placeholder="Filter by name...", default_value=CRMState.query, on_change=CRMState.filter),
+            pc.select(STAGES, default_value=CRMState.stage, on_change=CRMState.set_stage)
+        ),
         pc.table_container(
             pc.table(pc.tbody(pc.foreach(CRMState.contacts, contact_row))),
             margin_top="1rem",
+            border="1px solid #eaeaef",
         ),
         width="100%",
         max_width="960px",
