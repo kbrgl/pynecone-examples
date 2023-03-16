@@ -62,7 +62,7 @@ def index() -> pc.Component:
             class_name="flex",
         ),
         el.hr(class_name="my-8"),
-        el.h2("How it works", class_name="text-4xl font-bold text-red-500"),
+        el.h2("How it works", class_name="text-2xl font-bold"),
         el.ol(
             el.li(
                 "Initialize Tailwind in your Pynecone project using the Tailwind CLI.",
